@@ -84,13 +84,44 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
      подлежат оптимизации
     :return:
     """
-    # Запрос на получение задач подлежащих оптимизации
-    query = "SELECT * FROM %s where DATEDIFF(NOW(), updated) > %s and status in (%s) and assignee in (%s);"
-    args = (full_table_name, number_day_red_line, optimising_status_list, assignee_list)
-    print("Полное имя базы данных", full_table_name)
-    print('Список исполнителей для оптимизации', *assignee_list)
-    print('Статусы задач, подлежащих оптимизации', *optimising_status_list)
-    print('Сколько дней простоя оптимизируем', number_day_red_line)
+    # Запрос на создание таблицы задач подлежащих оптимизации
+    query = "CREATE TEMPORARY TABLE tasks_to_optimizing (PRIMARY KEY (`key`)) \
+            SELECT * FROM " + full_table_name + " where DATEDIFF(NOW(), updated) > " \
+            + str(number_day_red_line) + " and status in " + str(tuple(optimising_status_list)) + " and assignee in " \
+            + str(tuple(assignee_list)) + ";"
+    try:
+        db_config = read_db_config()
+        with MySQLConnection(**db_config) as conn, conn.cursor() as cursor:
+            cursor.execute(query)
+            query = "SELECT * FROM tasks_to_optimizing;"
+            cursor.execute(query)
+            tasks_to_optimizing = cursor.fetchall()
+            total_tasks = cursor.rowcount
+            min_workload = int(np.floor(total_tasks/len(assignee_list)))
+
+            # Запрос на получения таблицы оптимизации таблицы исполнителей
+            query = "CREATE TEMPORARY TABLE table_optimizing (PRIMARY KEY (`assignee`)) \
+                    SELECT tt.*,  ((tt.total - tt.mini) IN (0, 1)) AS opim, \
+                    IF(tt.total <= tt.mini, tt.mini - tt.total, tt.mini + 1 - tt.total) AS imper, \
+                    ((tt.total <= tt.mini)*2 - 1) AS facul \
+                    FROM ( \
+                    SELECT GROUP_CONCAT(`key`) AS `keys`, assignee, COUNT(*) AS total, " \
+                    + str(min_workload) + " AS mini \
+                    FROM tasks_to_optimizing GROUP BY assignee ORDER BY total DESC) \
+                    AS tt ORDER BY opim, total DESC;"
+            cursor.execute(query)
+            query = "SELECT * FROM table_optimizing;"
+            cursor.execute(query)
+            table_optimizing = cursor.fetchall()
+            is_normal = 0
+            for row in table_optimizing:
+                is_normal += row[5]
+            print(table_optimizing)
+            print(is_normal)
+
+    except Error as error:
+        print('Error')
+        print(error)
 
 
 def main():
