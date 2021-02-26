@@ -47,6 +47,7 @@ def create_table_st_tasks(full_table_name: str, number_total_tasks: int, number_
             `assignee` INT NOT NULL , `status` VARCHAR(60) NOT NULL , \
             `updated` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP , \
             `created` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP , PRIMARY KEY (`key`)) ENGINE = InnoDB;"
+
     try:
         db_config = read_db_config()
         with MySQLConnection(**db_config) as conn, conn.cursor() as cursor:
@@ -63,6 +64,7 @@ def create_table_st_tasks(full_table_name: str, number_total_tasks: int, number_
 
                 query = "INSERT INTO " + full_table_name + " (`assignee`, `status`, `updated`, `created`) \
                 VALUES (%s,%s,%s,%s)"
+
                 args = (cur_assignee, cur_status, str(cur_date_update), str(cur_date_created))
 
                 cursor.execute(query, args)
@@ -82,6 +84,9 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
      подлежат оптимизации
     :return:
     """
+    # Запрос на получение задач подлежащих оптимизации
+    query = "SELECT * FROM %s where DATEDIFF(NOW(), updated) > %s and status in (%s) and assignee in (%s);"
+    args = (full_table_name, number_day_red_line, optimising_status_list, assignee_list)
     print("Полное имя базы данных", full_table_name)
     print('Список исполнителей для оптимизации', *assignee_list)
     print('Статусы задач, подлежащих оптимизации', *optimising_status_list)
