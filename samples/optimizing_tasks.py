@@ -85,8 +85,8 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
     :return:
     """
     # Запрос на создание таблицы задач подлежащих оптимизации
-    query = "CREATE TABLE tasks_to_optimizing (PRIMARY KEY (`key`)) \
-            SELECT * FROM " + full_table_name + " where DATEDIFF(NOW(), updated) > " \
+    query = "CREATE TEMPORARY TABLE tasks_to_optimizing (PRIMARY KEY (`key`)) \
+            SELECT *, assignee as assignee_new FROM " + full_table_name + " where DATEDIFF(NOW(), updated) > " \
             + str(number_day_red_line) + " and status in " + str(tuple(optimising_status_list)) + " and assignee in " \
             + str(tuple(assignee_list)) + ";"
     try:
@@ -100,7 +100,7 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
             min_workload = int(np.floor(total_tasks/len(assignee_list)))
 
             # Запрос на получения таблицы оптимизации таблицы исполнителей
-            query = "CREATE TABLE table_optimizing \
+            query = "CREATE TEMPORARY TABLE table_optimizing \
                     SELECT tt.*,  ((tt.total - tt.mini) IN (0, 1)) AS optim, \
                     IF(tt.total <= tt.mini, tt.mini - tt.total, tt.mini + 1 - tt.total) AS imper, \
                     ((tt.total <= tt.mini)*2 - 1) AS facul \
@@ -108,17 +108,59 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
                     SELECT GROUP_CONCAT(`key`) AS `keys`, assignee, COUNT(*) AS total, " \
                     + str(min_workload) + " AS mini \
                     FROM tasks_to_optimizing GROUP BY assignee ORDER BY total DESC) \
-                    AS tt ORDER BY tt.total DESC;"
+                    AS tt ORDER BY imper ASC, tt.total DESC;"
             cursor.execute(query)
+
             query = "SELECT * FROM table_optimizing;"
             cursor.execute(query)
             table_optimizing = cursor.fetchall()
-            is_normal = 0
+            to_normal = 0
             for row in table_optimizing:
-                is_normal += row[5]
+                to_normal += row[5]
+            if to_normal != 0:
+                query = "UPDATE table_optimizing SET imper = imper + facul, facul = 0 \
+                        WHERE -facul = " + str(to_normal) + " limit " + str(to_normal) + ";"
+                cursor.execute(query)
+                conn.commit()
+            query = "SELECT * FROM table_optimizing WHERE NOT optim;"
+            cursor.execute(query)
+            table_optimizing = cursor.fetchall()
             print(table_optimizing)
-            print(is_normal)
+            tasks_del = []
+            tasks_update = []
+            for row in table_optimizing:
+                print('{0:_^30}'.format(row[0]), '{0:_^5}'.format(row[1]), '{0:_^5}'.format(row[2]),
+                      '{0:_^5}'.format(row[3]), '{0:_^5}'.format(row[4]), '{0:_^5}'.format(row[5]),
+                      '{0:_^5}'.format(row[6]))
+                list_tasks = row[0].split(',')
+                assignee = row[1]
+                imper = row[5]
+                for i in range(int(np.fabs(imper))):
+                    task = []
+                    if imper < 0:
+                        task.append(list_tasks.pop())
+                        task.append(assignee)
+                        tasks_del.append(task)
+                    elif imper > 0:
+                        task = tasks_del.pop()
+                        task.append(assignee)
+                        tasks_update.append(task)
+            print('tasks_del', tasks_del, 'длина', len(tasks_del))
+            print('tasks_update', tasks_update, 'длина', len(tasks_update))
+            assert len(tasks_del) == 0, 'Распределенны не все отобранные задачи!'
 
+            for u in tasks_update:
+                # query = "UPDATE `tasks_to_optimizing` SET `assignee_new` = " + str(u[2]) + \
+                #        " WHERE `tasks_to_optimizing`.`key` = " + str(u[0]) + ";"
+                query = "UPDATE `tasks_to_optimizing` SET `assignee_new` = " + str(u[2]) + \
+                        " WHERE `tasks_to_optimizing`.`key` = " + str(u[0]) + ";"
+                cursor.execute(query)
+                conn.commit()
+            query = "SELECT `key`, `assignee_new` as assignee FROM tasks_to_optimizing;"
+            cursor.execute(query)
+            optimized_tasks_table = cursor.fetchall()
+            for row in optimized_tasks_table:
+                print(row)
     except Error as error:
         print('Error')
         print(error)

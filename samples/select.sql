@@ -119,4 +119,10 @@ update table_optimizing
 set imper = imper + facul, facul = 0
 where -facul = 1 limit 1;
 
+UPDATE table_optimizing \
+SET imper = imper + facul, facul = 0 \
+WHERE -facul = 1 limit 1;
+
+
+
 drop table table_optimizing; drop table tasks_to_optimizing;
