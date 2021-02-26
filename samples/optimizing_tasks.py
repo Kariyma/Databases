@@ -85,7 +85,7 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
     :return:
     """
     # Запрос на создание таблицы задач подлежащих оптимизации
-    query = "CREATE TEMPORARY TABLE tasks_to_optimizing (PRIMARY KEY (`key`)) \
+    query = "CREATE TABLE tasks_to_optimizing (PRIMARY KEY (`key`)) \
             SELECT * FROM " + full_table_name + " where DATEDIFF(NOW(), updated) > " \
             + str(number_day_red_line) + " and status in " + str(tuple(optimising_status_list)) + " and assignee in " \
             + str(tuple(assignee_list)) + ";"
@@ -100,15 +100,15 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
             min_workload = int(np.floor(total_tasks/len(assignee_list)))
 
             # Запрос на получения таблицы оптимизации таблицы исполнителей
-            query = "CREATE TEMPORARY TABLE table_optimizing (PRIMARY KEY (`assignee`)) \
-                    SELECT tt.*,  ((tt.total - tt.mini) IN (0, 1)) AS opim, \
+            query = "CREATE TABLE table_optimizing \
+                    SELECT tt.*,  ((tt.total - tt.mini) IN (0, 1)) AS optim, \
                     IF(tt.total <= tt.mini, tt.mini - tt.total, tt.mini + 1 - tt.total) AS imper, \
                     ((tt.total <= tt.mini)*2 - 1) AS facul \
                     FROM ( \
                     SELECT GROUP_CONCAT(`key`) AS `keys`, assignee, COUNT(*) AS total, " \
                     + str(min_workload) + " AS mini \
                     FROM tasks_to_optimizing GROUP BY assignee ORDER BY total DESC) \
-                    AS tt ORDER BY opim, total DESC;"
+                    AS tt ORDER BY tt.total DESC;"
             cursor.execute(query)
             query = "SELECT * FROM table_optimizing;"
             cursor.execute(query)

@@ -65,6 +65,23 @@ from (
 select GROUP_CONCAT(`key`) as `keys`, assignee, count(*) as total, 7 as mini from test_st_tasks100
 where DATEDIFF(NOW(), updated) > 30 and status in ('Open', 'On support side', 'Verifying') and assignee in (2,3,4,6) group by assignee order by total DESC) as tt order by opim, total DESC;
 
+CREATE TABLE table_optimizing (PRIMARY KEY (`assignee`))
+                    SELECT tt.*,  ((tt.total - tt.mini) IN (0, 1)) AS optim,
+                    IF(tt.total <= tt.mini, tt.mini - tt.total, tt.mini + 1 - tt.total) AS imper,
+                    ((tt.total <= tt.mini)*2 - 1) AS facul
+                    FROM (
+                    SELECT GROUP_CONCAT(`key`) AS `keys`, assignee, COUNT(*) AS total, 7 AS mini
+                    FROM tasks_to_optimizing GROUP BY assignee) AS tt ORDER BY tt.total DESC;
+
+CREATE TABLE table_optimizing
+                    SELECT tt.*,  ((tt.total - tt.mini) IN (0, 1)) AS optim,
+                    IF(tt.total <= tt.mini, tt.mini - tt.total, tt.mini + 1 - tt.total) AS imper,
+                    ((tt.total <= tt.mini)*2 - 1) AS facul
+                    FROM (
+                    SELECT GROUP_CONCAT(`key`) AS `keys`, assignee, COUNT(*) AS total, 7 AS mini
+                    FROM tasks_to_optimizing GROUP BY assignee) AS tt ORDER BY tt.total DESC;
+
+
 Пытаюсь подсчитать разницу меджу 'дать' и 'взять'
 select ttt.*, sum(ttt.imper) as norm from (
 select tt.*,  ((tt.total - tt.mini) in (0, 1)) as optim, IF(tt.total <= tt.mini, tt.mini - tt.total, tt.mini + 1 - tt.total) as imper, ((tt.total <= tt.mini)*2 - 1) as facul
@@ -95,3 +112,11 @@ FROM ( \
 SELECT GROUP_CONCAT(`key`) AS `keys`, assignee, COUNT(*) AS total, 7 AS mini FROM tasks_to_optimizing \
 GROUP BY assignee ORDER BY total DESC) \
 AS tt ORDER BY opim, total DESC;
+
+ select *, imper+facul from table_optimizing where -facul=1 limit 1;
+
+update table_optimizing
+set imper = imper + facul, facul = 0
+where -facul = 1 limit 1;
+
+drop table table_optimizing; drop table tasks_to_optimizing;
