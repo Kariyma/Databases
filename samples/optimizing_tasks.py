@@ -195,11 +195,37 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
 
 
 def main():
-    full_table_name = 'python.test_st_tasks100'
-    assignee_list = [4]
-    optimising_status_list = ['Open', 'On support side', 'Verifying']
-    number_day_red_line = 10
+    # Если задача из таблицы full_table_name исполнителя из списка assignee_list дольше чем number_day_red_line дней
+    # находися в одном из статуов optimising_status_list она подлежит оптимизации
+    full_table_name = 'python.test_st_tasks100'                         # Полное имя базы данных
+    assignee_list = [4, 6]                                                 # Список исполнителей задач для оптимизации > 1
+    optimising_status_list = ['Open', 'On support side', 'Verifying']   # Cписок статусов задач для оптимизации
+    number_day_red_line = 10                                            # Количество дней
 
+    test_input_data = {'Полное имя базы данных': full_table_name, 'Список исполнителей': assignee_list,
+                        'Список статусов задач': optimising_status_list}
+
+    # Testing the input data for validity
+    error = False
+    message_error = ''
+    for test in test_input_data:
+        if len(test_input_data[test]) == 0:
+            error += True
+            message_error += '\033[31mПараметр "' + test + '" не может быть пустым.\033[0m\n'
+    if len(test_input_data['Список исполнителей']) == 1:
+        error += True
+        message_error += '\033[32mВ параметре "Список исполнителей" должно быть больше чем одно (1) значение.\033[0m\n'
+    if type(number_day_red_line) != int:
+        error += True
+        message_error += '\033[31mНедопустимое значение ' + str(number_day_red_line) + \
+                         ' для параметра "Количество дней". Ожидается целое число.\033[0m\n'
+    elif number_day_red_line < 0:
+        error += True
+        message_error += '\033[31mНедопустимое значение ' + str(number_day_red_line) + \
+                         ' для параметра "Количество дней". Ожидается положительное число.\033[0m\n'
+    if error:
+        print(message_error)
+        return
     # create_table_st_tasks('test_st_tasks100', 100, 7, ['Open', 'On support side', 'Verifying', 'Close'])
 
 
