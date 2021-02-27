@@ -1,34 +1,10 @@
 from mysql.connector import MySQLConnection, Error
+
+# модуль для чтения параметров доступа к серверу и базе данных из файла
 from python_mysql_dbconfig import read_db_config
+
 import numpy as np
 import datetime
-
-
-def create_table(full_table_name):
-    query = "CREATE TABLE IF NOT EXISTS " + full_table_name + " ( `key` INT NOT NULL AUTO_INCREMENT , \
-            `assignee` INT NOT NULL , `status` VARCHAR(60) NOT NULL , \
-            `updated` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP , \
-            `created` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP , PRIMARY KEY (`key`)) ENGINE = InnoDB;"
-    try:
-        db_config = read_db_config()
-        with MySQLConnection(**db_config) as conn, conn.cursor() as cursor:
-            cursor.execute(query)
-            conn.commit()
-    except Error as error:
-        print('Error')
-        print(error)
-
-
-def drop_table(full_table_name):
-    query = "DROP TABLE IF EXISTS " + full_table_name + ";"
-    try:
-        db_config = read_db_config()
-        with MySQLConnection(**db_config) as conn, conn.cursor() as cursor:
-            cursor.execute(query)
-            conn.commit()
-    except Error as error:
-        print('Error')
-        print(error)
 
 
 def create_table_st_tasks(full_table_name: str, number_total_tasks: int, number_total_assignee: int, status_list: list,
@@ -88,8 +64,9 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
     is_temporary = 'TEMPORARY'
     # is_temporary = ''
     query = "CREATE " + is_temporary + " TABLE `tasks_to_optimizing` (PRIMARY KEY (`key`)) \
-            SELECT `key`, `assignee`, assignee AS assignee_new FROM " + full_table_name + " WHERE DATEDIFF(NOW(), `updated`) > " \
-            + str(number_day_red_line) + " AND `status` IN " + str(tuple(optimising_status_list)) + " AND `assignee` IN " \
+            SELECT `key`, `assignee`, assignee AS assignee_old FROM " + full_table_name \
+            + " WHERE DATEDIFF(NOW(), `updated`) > " + str(number_day_red_line) \
+            + " AND `status` IN " + str(tuple(optimising_status_list)) + " AND `assignee` IN " \
             + str(tuple(assignee_list)) + ";"
     try:
         db_config = read_db_config()
@@ -128,10 +105,12 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
                     FROM `tasks_to_optimizing` GROUP BY `assignee` ORDER BY `total` DESC) \
                     AS tt ORDER BY `optim` ASC, `imper` ASC, tt.total DESC;"
             cursor.execute(query)
+
             '''
+            Нормализация таблицы оптимизации.
             Если в таблице оптимизации количество задач, которые надо забрать у исполнителей, не равно количеству 
-            задач, которые надо добавить исполнителям (to_normal на равен нулю), тогда приводим это соотношение к равентсву -  прибавляем по
-            одному к минимуму.
+            задач, которые надо добавить исполнителям (to_normal на равен нулю), тогда приводим это соотношение к 
+            равентсву -  прибавляем к минимуму добполтительное число (+1 или -1).
             '''
             query = "SELECT sum(imper) AS `to_normal` FROM table_optimizing;"
             cursor.execute(query)
@@ -146,15 +125,17 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
             table_optimizing = cursor.fetchone()
             to_normal = int(table_optimizing[0])
             assert to_normal == 0, 'Нормализация таблицы оптимизации задач не удалась!'
+
             ''' Формируем массив перереспределения task_update. 
                 task_update[0] - ключ задачи
                 task_update[1] - текущий исполнитель
                 task_update[2] - новый исполнитель
             '''
-            query = "SELECT `keys`, `assignee`, `imper` FROM table_optimizing WHERE NOT optim;"
+            query = "SELECT `keys`, `assignee`, `imper` FROM table_optimizing WHERE NOT `optim`;"
             cursor.execute(query)
             table_optimizing = cursor.fetchall()
             print(table_optimizing)
+
             tasks_del = []
             tasks_update = []
             for row in table_optimizing:
@@ -163,32 +144,39 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
                 assignee = row[1]
                 imper = row[2]
                 for i in range(int(np.fabs(imper))):
-                    task = []
+                    task = {}
                     if imper < 0:
-                        task.append(list_tasks.pop())
-                        task.append(assignee)
+                        task.update({'key': list_tasks.pop()})
+                        task.update({'assignee_old': assignee})
                         tasks_del.append(task)
                     elif imper > 0:
                         task = tasks_del.pop()
-                        task.append(assignee)
+                        task.update({'assignee_new': assignee})
                         tasks_update.append(task)
 
-            print('tasks_update', tasks_update, 'длина', len(tasks_update))
             assert len(tasks_del) == 0, 'Распределенны не все отобранные задачи!'
+            for row_update in tasks_update:
+                print(row_update)
 
             # Вносим изменения в таблицу с задачами подлежащими оптимизации
             for u in tasks_update:
-                query = "UPDATE `tasks_to_optimizing` SET `assignee_new` = " + str(u[2]) + \
-                        " WHERE `tasks_to_optimizing`.`key` = " + str(u[0]) + ";"
+                query = "UPDATE `tasks_to_optimizing` SET `assignee` = " + str(u['assignee_new']) + \
+                        ", `assignee_old` = " + str(u['assignee_old']) + \
+                        " WHERE `tasks_to_optimizing`.`key` = " + str(u['key']) + ";"
                 cursor.execute(query)
                 conn.commit()
 
             # Получаем искомую выборку по оптимизации распределия задач
-            query = "SELECT `key`, `assignee_new` as assignee FROM tasks_to_optimizing;"
+            query = "SELECT `key`, `assignee` as assignee FROM tasks_to_optimizing;"
             cursor.execute(query)
             optimized_tasks_table = cursor.fetchall()
+            optimized_tasks_dictionary = []
+            optimized_tasks_dictionary_row = {}
             for row in optimized_tasks_table:
-                print(row)
+                optimized_tasks_dictionary_row.update({cursor.column_names[0]: row[0]})
+                optimized_tasks_dictionary_row.update({cursor.column_names[1]: row[1]})
+                optimized_tasks_dictionary.append(optimized_tasks_dictionary_row)
+                print(optimized_tasks_dictionary_row)
     except Error as error:
         print('Error')
         print(error)
@@ -198,12 +186,12 @@ def main():
     # Если задача из таблицы full_table_name исполнителя из списка assignee_list дольше чем number_day_red_line дней
     # находися в одном из статуов optimising_status_list она подлежит оптимизации
     full_table_name = 'python.test_st_tasks100'                         # Полное имя базы данных
-    assignee_list = [4, 6]                                                 # Список исполнителей задач для оптимизации > 1
+    assignee_list = [4, 6]                                              # Список исполнителей задач для оптимизации > 1
     optimising_status_list = ['Open', 'On support side', 'Verifying']   # Cписок статусов задач для оптимизации
     number_day_red_line = 10                                            # Количество дней
 
     test_input_data = {'Полное имя базы данных': full_table_name, 'Список исполнителей': assignee_list,
-                        'Список статусов задач': optimising_status_list}
+                       'Список статусов задач': optimising_status_list}
 
     # Testing the input data for validity
     error = False
@@ -226,13 +214,12 @@ def main():
     if error:
         print(message_error)
         return
+
+    # Создание тестовой таблицы со случайными данными
     # create_table_st_tasks('test_st_tasks100', 100, 7, ['Open', 'On support side', 'Verifying', 'Close'])
 
-
+    # Оптимизируем распределение задач из таблицы по заданным условиям
     optimizing_tasks(full_table_name, assignee_list, optimising_status_list, number_day_red_line)
-
-    # drop_table(full_table_name)
-    # print(*optimising_status_list)
 
 
 if __name__ == '__main__':
