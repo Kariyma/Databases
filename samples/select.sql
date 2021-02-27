@@ -32,8 +32,11 @@ INSERT INTO `test` (`id`, `name`, `pet`) VALUES (NULL, 'маша', 'хомяк')
 Задачи в работе у исполнителей
 select * from test_st_tasks10 where status in ('Open', 'On support side', 'Verifying') and assignee in (2,3,4,6);
 
-Просроченные задачи в работе у исполнителей !!!
-select * from test_st_tasks100 where DATEDIFF(NOW(), updated) > 30 and status in ('Open', 'On support side', 'Verifying') and assignee in (2,3,4,6);
+Просроченные задачи в работе у исполнителей !!! В работе больше X дней, Исполнители a, b, c, ...
+select * from test_st_tasks100 where DATEDIFF(NOW(), updated) > X and status in ('Open', 'On support side', 'Verifying') and assignee in (a,b,c,d);
+
+Подсчёт задач подлежащих оптимизации и реальных исполнителей этих задач
+SELECT count(`key`), count(DISTINCT `assignee`) FROM `tasks_to_optimizing`;
 
 CREATE TEMPORARY TABLE tasks_to_optimizing (PRIMARY KEY(key)) \
 SELECT * FROM test_st_tasks100 WHERE DATEDIFF(NOW(), updated) > 30 \
@@ -51,8 +54,8 @@ select count(*) as total_tasks from test_st_tasks100 where DATEDIFF(NOW(), updat
  where status in ('Open', 'On support side', 'Verifying') and assignee in (2,3,4,6) group by assignee;
 
 Нагрузка на исполнителей по просроченным задачам
-select GROUP_CONCAT(`key`) as `keys`, assignee, count(*) as total, 7 as mini from test_st_tasks100
-where DATEDIFF(NOW(), updated) > 30 and status in ('Open', 'On support side', 'Verifying') and assignee in (2,3,4,6) group by assignee order by total DESC;
+select GROUP_CONCAT(`key`) as `keys`, assignee, count(*) as total, 0 as mini from test_st_tasks100
+where DATEDIFF(NOW(), updated) > 10 and status in ('Open', 'On support side', 'Verifying') and assignee in (0,1) group by assignee order by total DESC;
 
 select tt.* from (
 select GROUP_CONCAT(`key`) as `keys`, assignee, count(*) as total, 7 as mini from test_st_tasks100

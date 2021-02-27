@@ -85,7 +85,9 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
     :return:
     """
     # Запрос на создание временной таблицы задач подлежащих оптимизации
-    query = "CREATE TEMPORARY TABLE `tasks_to_optimizing` (PRIMARY KEY (`key`)) \
+    is_temporary = 'TEMPORARY'
+    # is_temporary = ''
+    query = "CREATE " + is_temporary + " TABLE `tasks_to_optimizing` (PRIMARY KEY (`key`)) \
             SELECT `key`, `assignee`, assignee AS assignee_new FROM " + full_table_name + " WHERE DATEDIFF(NOW(), `updated`) > " \
             + str(number_day_red_line) + " AND `status` IN " + str(tuple(optimising_status_list)) + " AND `assignee` IN " \
             + str(tuple(assignee_list)) + ";"
@@ -93,14 +95,30 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
         db_config = read_db_config()
         with MySQLConnection(**db_config) as conn, conn.cursor() as cursor:
             cursor.execute(query)
-            query = "SELECT * FROM `tasks_to_optimizing`;"
+            if cursor.rowcount == 0:
+                print('Не найдены задачи отвечающие заданным условиям:')
+                print('исполнитель задачи входит в список исполнителей \033[32m{}\033[0m;\n'
+                      'задача дольше \033[32m{}\033[0m дней находится в одном изстатусов \033[32m{}\033[0m.'
+                      .format(assignee_list, number_day_red_line, optimising_status_list))
+                print('В оптимизации нет необходимости.')
+                return
+            query = "SELECT COUNT(`key`), count(DISTINCT `assignee`), `assignee` FROM `tasks_to_optimizing`;"
             cursor.execute(query)
-            tasks_to_optimizing = cursor.fetchall()
-            total_tasks = cursor.rowcount
-            min_workload = int(np.floor(total_tasks/len(assignee_list)))
+            # tasks_to_optimizing = cursor.fetchall()
+            tasks_to_optimizing = cursor.fetchone()
+            # total_tasks = cursor.rowcount
+            total_tasks = int(tasks_to_optimizing[0])
+            real_assignee_number = int(tasks_to_optimizing[1])
+            if real_assignee_number == 1:
+                print('Из списка исполнителей \033[32m{}\033[0m найден только один (\033[31m{}\033[0m), '
+                      'задачи которого дольше \033[32m{}\033[0m дней находятся в статусах \033[32m{}\033[0m.'
+                      .format(assignee_list, tasks_to_optimizing[2], number_day_red_line, optimising_status_list))
+                print('В оптимизации нет необходимости.')
+                return
+            min_workload = int(np.floor(total_tasks/real_assignee_number))
 
             # Запрос на получение временной таблицы оптимизации таблицы исполнителей
-            query = "CREATE TEMPORARY TABLE `table_optimizing` \
+            query = "CREATE " + is_temporary + " TABLE `table_optimizing` \
                     SELECT tt.*,  ((tt.total - tt.mini) IN (0, 1)) AS optim, \
                     IF(tt.total <= tt.mini, tt.mini - tt.total, tt.mini + 1 - tt.total) AS imper, \
                     ((tt.total <= tt.mini)*2 - 1) AS facul \
@@ -108,7 +126,7 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
                     SELECT GROUP_CONCAT(`key`) AS `keys`, `assignee`, COUNT(*) AS total, " \
                     + str(min_workload) + " AS mini \
                     FROM `tasks_to_optimizing` GROUP BY `assignee` ORDER BY `total` DESC) \
-                    AS tt ORDER BY `imper` ASC, tt.total DESC;"
+                    AS tt ORDER BY `optim` ASC, `imper` ASC, tt.total DESC;"
             cursor.execute(query)
             '''
             Если в таблице оптимизации количество задач, которые надо забрать у исполнителей, не равно количеству 
@@ -118,12 +136,16 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
             query = "SELECT sum(imper) AS `to_normal` FROM table_optimizing;"
             cursor.execute(query)
             table_optimizing = cursor.fetchone()
-            to_normal = table_optimizing[0]
-            if to_normal > 0:
-                query = "UPDATE table_optimizing SET imper = imper + facul, facul = 0 \
-                        WHERE -facul = " + str(to_normal) + " limit " + str(to_normal) + ";"
-                cursor.execute(query)
+            to_normal = int(table_optimizing[0])
+            if to_normal != 0:
+                query_u = "UPDATE `table_optimizing` SET `imper` = `imper` + `facul`, `facul` = 0, `optim` = 0 \
+                        WHERE -`facul` = " + str(to_normal) + " limit " + str(int(np.fabs(to_normal))) + ";"
+                cursor.execute(query_u)
                 conn.commit()
+            cursor.execute(query)
+            table_optimizing = cursor.fetchone()
+            to_normal = int(table_optimizing[0])
+            assert to_normal == 0, 'Нормализация таблицы оптимизации задач не удалась!'
             ''' Формируем массив перереспределения task_update. 
                 task_update[0] - ключ задачи
                 task_update[1] - текущий исполнитель
@@ -174,11 +196,12 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
 
 def main():
     full_table_name = 'python.test_st_tasks100'
-    assignee_list = [2, 3, 4, 6]
+    assignee_list = [4]
     optimising_status_list = ['Open', 'On support side', 'Verifying']
-    number_day_red_line = 30
+    number_day_red_line = 10
 
     # create_table_st_tasks('test_st_tasks100', 100, 7, ['Open', 'On support side', 'Verifying', 'Close'])
+
 
     optimizing_tasks(full_table_name, assignee_list, optimising_status_list, number_day_red_line)
 
