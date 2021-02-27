@@ -84,57 +84,62 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
      подлежат оптимизации
     :return:
     """
-    # Запрос на создание таблицы задач подлежащих оптимизации
-    query = "CREATE TEMPORARY TABLE tasks_to_optimizing (PRIMARY KEY (`key`)) \
-            SELECT *, assignee as assignee_new FROM " + full_table_name + " where DATEDIFF(NOW(), updated) > " \
-            + str(number_day_red_line) + " and status in " + str(tuple(optimising_status_list)) + " and assignee in " \
+    # Запрос на создание временной таблицы задач подлежащих оптимизации
+    query = "CREATE TEMPORARY TABLE `tasks_to_optimizing` (PRIMARY KEY (`key`)) \
+            SELECT `key`, `assignee`, assignee AS assignee_new FROM " + full_table_name + " WHERE DATEDIFF(NOW(), `updated`) > " \
+            + str(number_day_red_line) + " AND `status` IN " + str(tuple(optimising_status_list)) + " AND `assignee` IN " \
             + str(tuple(assignee_list)) + ";"
     try:
         db_config = read_db_config()
         with MySQLConnection(**db_config) as conn, conn.cursor() as cursor:
             cursor.execute(query)
-            query = "SELECT * FROM tasks_to_optimizing;"
+            query = "SELECT * FROM `tasks_to_optimizing`;"
             cursor.execute(query)
             tasks_to_optimizing = cursor.fetchall()
             total_tasks = cursor.rowcount
             min_workload = int(np.floor(total_tasks/len(assignee_list)))
 
-            # Запрос на получения таблицы оптимизации таблицы исполнителей
-            query = "CREATE TEMPORARY TABLE table_optimizing \
+            # Запрос на получение временной таблицы оптимизации таблицы исполнителей
+            query = "CREATE TEMPORARY TABLE `table_optimizing` \
                     SELECT tt.*,  ((tt.total - tt.mini) IN (0, 1)) AS optim, \
                     IF(tt.total <= tt.mini, tt.mini - tt.total, tt.mini + 1 - tt.total) AS imper, \
                     ((tt.total <= tt.mini)*2 - 1) AS facul \
                     FROM ( \
-                    SELECT GROUP_CONCAT(`key`) AS `keys`, assignee, COUNT(*) AS total, " \
+                    SELECT GROUP_CONCAT(`key`) AS `keys`, `assignee`, COUNT(*) AS total, " \
                     + str(min_workload) + " AS mini \
-                    FROM tasks_to_optimizing GROUP BY assignee ORDER BY total DESC) \
-                    AS tt ORDER BY imper ASC, tt.total DESC;"
+                    FROM `tasks_to_optimizing` GROUP BY `assignee` ORDER BY `total` DESC) \
+                    AS tt ORDER BY `imper` ASC, tt.total DESC;"
             cursor.execute(query)
-
-            query = "SELECT * FROM table_optimizing;"
+            '''
+            Если в таблице оптимизации количество задач, которые надо забрать у исполнителей, не равно количеству 
+            задач, которые надо добавить исполнителям (to_normal на равен нулю), тогда приводим это соотношение к равентсву -  прибавляем по
+            одному к минимуму.
+            '''
+            query = "SELECT sum(imper) AS `to_normal` FROM table_optimizing;"
             cursor.execute(query)
-            table_optimizing = cursor.fetchall()
-            to_normal = 0
-            for row in table_optimizing:
-                to_normal += row[5]
-            if to_normal != 0:
+            table_optimizing = cursor.fetchone()
+            to_normal = table_optimizing[0]
+            if to_normal > 0:
                 query = "UPDATE table_optimizing SET imper = imper + facul, facul = 0 \
                         WHERE -facul = " + str(to_normal) + " limit " + str(to_normal) + ";"
                 cursor.execute(query)
                 conn.commit()
-            query = "SELECT * FROM table_optimizing WHERE NOT optim;"
+            ''' Формируем массив перереспределения task_update. 
+                task_update[0] - ключ задачи
+                task_update[1] - текущий исполнитель
+                task_update[2] - новый исполнитель
+            '''
+            query = "SELECT `keys`, `assignee`, `imper` FROM table_optimizing WHERE NOT optim;"
             cursor.execute(query)
             table_optimizing = cursor.fetchall()
             print(table_optimizing)
             tasks_del = []
             tasks_update = []
             for row in table_optimizing:
-                print('{0:_^30}'.format(row[0]), '{0:_^5}'.format(row[1]), '{0:_^5}'.format(row[2]),
-                      '{0:_^5}'.format(row[3]), '{0:_^5}'.format(row[4]), '{0:_^5}'.format(row[5]),
-                      '{0:_^5}'.format(row[6]))
+                print('{0:_^30}'.format(row[0]), '{0:_^5}'.format(row[1]), '{0:_^5}'.format(row[2]))
                 list_tasks = row[0].split(',')
                 assignee = row[1]
-                imper = row[5]
+                imper = row[2]
                 for i in range(int(np.fabs(imper))):
                     task = []
                     if imper < 0:
@@ -145,17 +150,18 @@ def optimizing_tasks(full_table_name, assignee_list: list, optimising_status_lis
                         task = tasks_del.pop()
                         task.append(assignee)
                         tasks_update.append(task)
-            print('tasks_del', tasks_del, 'длина', len(tasks_del))
+
             print('tasks_update', tasks_update, 'длина', len(tasks_update))
             assert len(tasks_del) == 0, 'Распределенны не все отобранные задачи!'
 
+            # Вносим изменения в таблицу с задачами подлежащими оптимизации
             for u in tasks_update:
-                # query = "UPDATE `tasks_to_optimizing` SET `assignee_new` = " + str(u[2]) + \
-                #        " WHERE `tasks_to_optimizing`.`key` = " + str(u[0]) + ";"
                 query = "UPDATE `tasks_to_optimizing` SET `assignee_new` = " + str(u[2]) + \
                         " WHERE `tasks_to_optimizing`.`key` = " + str(u[0]) + ";"
                 cursor.execute(query)
                 conn.commit()
+
+            # Получаем искомую выборку по оптимизации распределия задач
             query = "SELECT `key`, `assignee_new` as assignee FROM tasks_to_optimizing;"
             cursor.execute(query)
             optimized_tasks_table = cursor.fetchall()

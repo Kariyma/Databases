@@ -47,7 +47,7 @@ AND status IN ('Open', 'On support side', 'Verifying') AND assignee IN (2,3,4,6)
 select count(*) as total_tasks from test_st_tasks100 where DATEDIFF(NOW(), updated) > 30 and status in ('Open', 'On support side', 'Verifying') and assignee in (2,3,4,6);
 
 Нагрузка исполнителей
- select GROUP_CONCAT(`key`) as `keys`, assignee, count(*) as total from test_st_tasks10
+ select GROUP_CONCAT(`key`) as `keys`, assignee, count(*) as total from test_st_tasks100
  where status in ('Open', 'On support side', 'Verifying') and assignee in (2,3,4,6) group by assignee;
 
 Нагрузка на исполнителей по просроченным задачам
